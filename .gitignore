@@ -1,4 +1,6 @@
 .env
+lavalink/cookies.txt
+*.log
 redenv/
 redbot_data/
 lavalink_setup/

@@ -12,7 +12,16 @@ CONFIG_PATH = "/app/lavalink_config.yml"
 
 
 class AdminGroup(app_commands.Group):
-    """Server administration commands."""
+    """Server administration commands — server owner only."""
+
+    # Lock the entire group to administrator permission — no exceptions
+    default_permissions = discord.Permissions(administrator=True)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != interaction.guild.owner_id and not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("This command is restricted to server administrators.", ephemeral=True)
+            return False
+        return True
 
     @app_commands.command(name="setup", description="Build the full server channel structure")
     async def setup(self, interaction: discord.Interaction):

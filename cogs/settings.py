@@ -9,7 +9,15 @@ from discord import app_commands
 
 
 class ConfigGroup(app_commands.Group):
-    """Configure JARVIS settings for this server."""
+    """Configure JARVIS settings for this server — administrators only."""
+
+    default_permissions = discord.Permissions(manage_guild=True)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("This command requires the Manage Server permission.", ephemeral=True)
+            return False
+        return True
 
     # ── /config music ──────────────────────────────────────────────────────────
     @app_commands.command(name="music", description="Configure music settings")

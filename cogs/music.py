@@ -1,3 +1,4 @@
+import os
 import datetime
 import asyncio
 import aiohttp
@@ -137,7 +138,7 @@ class Music(commands.Cog):
 
     async def _connect_node(self):
         await self.bot.wait_until_ready()
-        node = wavelink.Node(uri="http://localhost:2333", password="youshallnotpass")
+        node = wavelink.Node(uri="http://localhost:2333", password=os.getenv("LAVALINK_PASSWORD", "youshallnotpass"))
         await wavelink.Pool.connect(nodes=[node], client=self.bot, cache_capacity=100)
 
     @commands.Cog.listener()
