@@ -143,7 +143,19 @@ class Music(commands.Cog):
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
         import logging
-        logging.getLogger("jarvis").info("Lavalink node ready: %s", payload.node.identifier)
+        log = logging.getLogger("jarvis")
+        log.info("Lavalink node ready: %s (resumed=%s)", payload.node.identifier, payload.resumed)
+        # If node reconnected (not resumed), disconnect all stale voice clients
+        # so they don't send stale voice updates that cause immediate disconnects
+        if not payload.resumed:
+            for guild in self.bot.guilds:
+                vc = guild.voice_client
+                if vc and isinstance(vc, wavelink.Player):
+                    try:
+                        await vc.disconnect()
+                        log.info("Disconnected stale player in guild %s", guild.id)
+                    except Exception:
+                        pass
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
@@ -204,18 +216,22 @@ class Music(commands.Cog):
         track = payload.track
 
         import re
-        # Strip noise like (Lyrical), (Official), (Audio), [HD] etc for cleaner fallback search
         clean_title = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", track.title).strip()
+        # Include author for more accurate SoundCloud match
+        author = track.author or ""
+        author_clean = re.sub(r'\s*-\s*Topic$', '', author).strip()  # strip " - Topic" from YouTube auto-channels
 
         if hasattr(player, "text_channel") and player.text_channel:
             await player.text_channel.send(f"⚠️ Blocked: **{track.title}**. Trying fallbacks...")
 
-        # Try SoundCloud with clean title, then full title, then YouTube with clean title
-        for source, query in [
+        # Try SoundCloud with title + artist first (most accurate), then fallbacks
+        queries = [
+            ("scsearch:", f"{clean_title} {author_clean}".strip()),
             ("scsearch:", clean_title),
             ("scsearch:", track.title),
-            ("ytsearch:", clean_title),
-        ]:
+            ("ytsearch:", f"{clean_title} {author_clean}".strip()),
+        ]
+        for source, query in queries:
             try:
                 results = await wavelink.Playable.search(query, source=source)
                 if results:

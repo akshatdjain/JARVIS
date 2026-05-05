@@ -45,7 +45,7 @@ plugins:
       enabled: true
       refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
     remoteCipher:
-      url: "https://cipher.kikkia.dev/"
+      url: "http://yt-cipher:8001/"
       userAgent: "jarvis-discord-bot"
 
   lavasrc:

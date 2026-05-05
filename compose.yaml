@@ -1,4 +1,13 @@
 services:
+  yt-cipher:
+    image: ghcr.io/kikkia/yt-cipher:master
+    container_name: yt-cipher
+    restart: unless-stopped
+    environment:
+      - OVERRIDE_PLAYER_VARIANT=IAS
+    networks:
+      - jarvis_internal
+
   lavalink:
     image: ghcr.io/lavalink-devs/lavalink:4
     container_name: lavalink
