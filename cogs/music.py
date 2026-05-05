@@ -66,21 +66,42 @@ class MusicView(discord.ui.View):
         query = (vc.current.title if vc and vc.current else self.track_title)
         if not query:
             return await interaction.followup.send("Nothing playing.", ephemeral=True)
+        vc: wavelink.Player = interaction.guild.voice_client
+        track = vc.current if vc else None
+        title = track.title if track else self.track_title
+        author = track.author if track else ""
+
         async with aiohttp.ClientSession() as session:
             try:
+                params = {"track_name": title, "artist_name": author} if author else {"track_name": title}
                 async with session.get(
-                    f"https://api.lyrics.ovh/v1/{query.replace(' ', '/')}",
+                    "https://lrclib.net/api/get",
+                    params=params,
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as resp:
                     if resp.status != 200:
-                        return await interaction.followup.send(f"No lyrics found for **{query}**.", ephemeral=True)
-                    data = await resp.json()
-                    lyrics = data.get("lyrics", "")[:3800]
+                        # Fallback: search by title only
+                        async with session.get(
+                            "https://lrclib.net/api/search",
+                            params={"q": title},
+                            timeout=aiohttp.ClientTimeout(total=10)
+                        ) as resp2:
+                            if resp2.status != 200:
+                                return await interaction.followup.send(f"No lyrics found for **{title}**.", ephemeral=True)
+                            results = await resp2.json()
+                            lyrics = results[0].get("plainLyrics", "") if results else ""
+                    else:
+                        data = await resp.json()
+                        lyrics = data.get("plainLyrics", "")
             except Exception:
                 return await interaction.followup.send("Lyrics service unavailable.", ephemeral=True)
+
         if not lyrics:
-            return await interaction.followup.send("No lyrics found.", ephemeral=True)
-        embed = discord.Embed(title=f"Lyrics — {query}", description=lyrics, color=0x1C1C1E)
+            return await interaction.followup.send(f"No lyrics found for **{title}**.", ephemeral=True)
+
+        embed = discord.Embed(title=f"Lyrics — {title}", description=lyrics[:3900], color=0x1C1C1E)
+        if author:
+            embed.set_footer(text=author)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @discord.ui.button(emoji="🛑", style=discord.ButtonStyle.danger, custom_id="stop_btn", row=1)
@@ -359,13 +380,30 @@ class Music(commands.Cog):
         if not query:
             return await interaction.followup.send("❌ Nothing is playing and no song specified!")
 
+        vc: wavelink.Player = interaction.guild.voice_client
+        author = (vc.current.author if vc and vc.current else "") if not song else ""
+
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(f"https://api.lyrics.ovh/v1/{query.replace(' ', '/')}", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                params = {"track_name": query, "artist_name": author} if author else {"track_name": query}
+                async with session.get(
+                    "https://lrclib.net/api/get",
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
                     if resp.status != 200:
-                        return await interaction.followup.send(f"❌ No lyrics found for **{query}**.")
-                    data = await resp.json()
-                    lyrics = data.get("lyrics", "")
+                        async with session.get(
+                            "https://lrclib.net/api/search",
+                            params={"q": query},
+                            timeout=aiohttp.ClientTimeout(total=10)
+                        ) as resp2:
+                            if resp2.status != 200:
+                                return await interaction.followup.send(f"❌ No lyrics found for **{query}**.")
+                            results = await resp2.json()
+                            lyrics = results[0].get("plainLyrics", "") if results else ""
+                    else:
+                        data = await resp.json()
+                        lyrics = data.get("plainLyrics", "")
             except Exception:
                 return await interaction.followup.send("❌ Lyrics service unavailable.")
 
