@@ -135,32 +135,6 @@ class Stream(commands.Cog):
 
         await interaction.edit_original_response(content=msg)
 
-    @app_commands.command(name="streaming", description="See who is currently streaming")
-    async def streaming(self, interaction: discord.Interaction):
-        config = await self._get_config(interaction.guild_id)
-        if not config or not config["stream_vc_id"]:
-            return await interaction.response.send_message(
-                "❌ No stream channel configured. Use `/streamsetup` first.", ephemeral=True
-            )
-
-        vc = interaction.guild.get_channel(config["stream_vc_id"])
-        if not vc:
-            return await interaction.response.send_message("❌ Stream channel not found.", ephemeral=True)
-
-        streamers = [m for m in vc.members if m.voice and m.voice.self_stream]
-
-        if not streamers:
-            return await interaction.response.send_message(
-                f"No one is streaming in {vc.mention} right now.", ephemeral=True
-            )
-
-        embed = discord.Embed(
-            title="🎥 Currently Streaming",
-            description="\n".join(f"• {m.mention}" for m in streamers),
-            color=0x9B59B6,
-        )
-        embed.set_footer(text=f"In {vc.name}")
-        await interaction.response.send_message(embed=embed)
 
 
     @app_commands.command(name="stream", description="Search Hotstar or YouTube — only works in the stream chat channel")

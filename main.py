@@ -19,6 +19,7 @@ log = logging.getLogger("jarvis")
 
 COGS = [
     "cogs.setup",
+    "cogs.help",
     "cogs.roles",
     "cogs.community",
     "cogs.economy",
@@ -39,7 +40,6 @@ COGS = [
     "cogs.giveaway",
     "cogs.birthdays",
     "cogs.general",
-    "cogs.media",
 ]
 
 DB_SCHEMA = """
