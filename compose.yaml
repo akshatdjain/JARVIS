@@ -9,6 +9,7 @@ services:
     volumes:
       - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
       - ./lavalink/plugins:/opt/Lavalink/plugins
+      - ./lavalink/cookies.txt:/opt/Lavalink/cookies.txt:ro
     ports:
       - "127.0.0.1:2333:2333"
     networks:
