@@ -17,29 +17,37 @@ logging.getLogger("discord.voice_client").setLevel(logging.DEBUG)
 logging.getLogger("discord.gateway").setLevel(logging.DEBUG)
 log = logging.getLogger("jarvis")
 
+# User-facing cogs — commands go global
 COGS = [
-    "cogs.setup",
     "cogs.help",
-    "cogs.roles",
-    "cogs.community",
-    "cogs.economy",
-    "cogs.ytrefresh",
-    "cogs.stream",
-    "cogs.games",
-    "cogs.music_extras",
-    "cogs.utility",
     "cogs.music",
     "cogs.filters",
     "cogs.levels",
     "cogs.fun",
     "cogs.reminders",
     "cogs.ai",
-    "cogs.moderation",
-    "cogs.automod",
     "cogs.tickets",
     "cogs.giveaway",
     "cogs.birthdays",
     "cogs.general",
+    "cogs.stream",
+    "cogs.games",
+    "cogs.economy",
+    "cogs.utility",
+    "cogs.community",
+    "cogs.roles",
+]
+
+# Admin/config cogs — commands go guild-only (instant, no global limit usage)
+GUILD_COGS = [
+    "cogs.setup",
+    "cogs.config",
+    "cogs.admin",
+    "cogs.mod",
+    "cogs.music_extras",
+    "cogs.automod",
+    "cogs.moderation",
+    "cogs.ytrefresh",
 ]
 
 DB_SCHEMA = """
@@ -127,7 +135,7 @@ class Jarvis(commands.Bot):
             await conn.execute(DB_SCHEMA)
         log.info("Database connected and schema ready")
 
-        for cog in COGS:
+        for cog in COGS + GUILD_COGS:
             try:
                 await self.load_extension(cog)
                 log.info("Loaded cog: %s", cog)
@@ -139,17 +147,18 @@ class Jarvis(commands.Bot):
 
     async def _sync_commands(self):
         await self.wait_until_ready()
-        # Step 1: wipe global commands (prevents duplicates)
-        await self.http.bulk_upsert_global_commands(self.application_id, [])
-        log.info("Cleared global commands")
-        # Step 2: sync to every guild instantly (guild commands = instant, no duplicates)
-        for guild in self.guilds:
-            try:
-                self.tree.copy_global_to(guild=guild)
-                await self.tree.sync(guild=guild)
-                log.info("Synced to guild: %s (%s)", guild.name, guild.id)
-            except Exception as e:
-                log.warning("Failed to sync guild %s: %s", guild.id, e)
+
+        # Global sync — user-facing commands only, no admin clutter
+        await self.tree.sync()
+        log.info("Global commands synced")
+
+        # Guild sync — /config /admin /mod + other admin commands, instant on every guild
+        guild_id = os.getenv("GUILD_ID")
+        if guild_id:
+            guild = discord.Object(id=int(guild_id))
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+            log.info("Guild commands synced to %s", guild_id)
 
     async def on_guild_join(self, guild: discord.Guild):
         try:

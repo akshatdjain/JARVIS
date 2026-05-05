@@ -53,6 +53,19 @@ class General(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
 
+    @app_commands.command(name="setwelcome", description="Set the welcome message channel (owner only)")
+    async def setwelcome(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        # Owner-only
+        if interaction.user.id != interaction.guild.owner_id:
+            return await interaction.response.send_message("Only the server owner can use this.", ephemeral=True)
+        async with self.bot.db.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO guild_config (guild_id, welcome_channel_id) VALUES ($1, $2) "
+                "ON CONFLICT (guild_id) DO UPDATE SET welcome_channel_id = $2",
+                interaction.guild_id, channel.id
+            )
+        await interaction.response.send_message(f"Welcome messages will go to {channel.mention}.", ephemeral=True)
+
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         async with self.bot.db.acquire() as conn:
@@ -61,7 +74,9 @@ class General(commands.Cog):
         channel_id = row["welcome_channel_id"] if row else None
         channel = (
             member.guild.get_channel(channel_id) if channel_id
-            else member.guild.system_channel
+            # Auto-detect the general channel from /setup layout
+            else discord.utils.get(member.guild.text_channels, name="💬・general")
+            or member.guild.system_channel
             or next((c for c in member.guild.text_channels if c.permissions_for(member.guild.me).send_messages), None)
         )
         if not channel:
