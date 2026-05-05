@@ -225,11 +225,11 @@ class Music(commands.Cog):
                 pass
 
         if hasattr(player, "text_channel") and player.text_channel:
-            await player.text_channel.send(f"❌ **{track.title}** is unavailable on all sources. Skipping.")
+            await player.text_channel.send(f"❌ **{track.title}** unavailable everywhere. Skipping.")
 
-    @commands.Cog.listener()
-    async def on_wavelink_inactive_player(self, player: wavelink.Player):
-        await player.disconnect()
+        # Play next track in queue so player doesn't go idle and disconnect
+        if player.queue:
+            await player.play(player.queue.get())
 
     @app_commands.command(name="play", description="Play a song from YouTube, Spotify, SoundCloud, or a URL")
     async def play(self, interaction: discord.Interaction, query: str):
