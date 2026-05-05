@@ -157,6 +157,21 @@ class Economy(commands.Cog):
         async with self.bot.db.acquire() as conn:
             await conn.execute(SCHEMA)
 
+    async def _log_win(self, guild: discord.Guild, member: discord.Member, amount: int, source: str):
+        ch = discord.utils.get(guild.text_channels, name="💵・economy-log")
+        if not ch:
+            return
+        embed = discord.Embed(
+            title="💰 Big Win!",
+            description=f"{member.mention} won **{amount:,} coins** from {source}!",
+            color=0xF1C40F,
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        try:
+            await ch.send(embed=embed)
+        except discord.HTTPException:
+            pass
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
@@ -282,6 +297,10 @@ class Economy(commands.Cog):
                 winnings, interaction.user.id, interaction.guild_id
             )
             new_bal = await get_balance(conn, interaction.user.id, interaction.guild_id)
+
+        # Log big wins (jackpot or 2x+ win)
+        if winnings >= bet * 3:
+            await self._log_win(interaction.guild, interaction.user, winnings, "slots")
 
         embed = discord.Embed(title="🎰 Slot Machine", color=color)
         embed.add_field(name="Reels", value=f"[ {' | '.join(reels)} ]", inline=False)

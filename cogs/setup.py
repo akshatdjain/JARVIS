@@ -41,8 +41,28 @@ CATEGORIES = [
     {
         "name": "🎥 STREAM",
         "channels": [
-            {"name": "📺・stream-chat",    "type": "text", "topic": "Chat while watching. Use /stream to find content."},
+            {"name": "📺・stream-chat",    "type": "text", "topic": "Chat while watching. Use /stream to find content on Hotstar or YouTube."},
             {"name": "🎥 stream",          "type": "voice"},
+        ],
+    },
+    {
+        "name": "💰 ECONOMY",
+        "channels": [
+            {"name": "🏪・shop-chat",      "type": "text", "topic": "Use /shop /buy /slots /blackjack /balance here."},
+            {"name": "💵・economy-log",    "type": "text", "topic": "Big wins and economy events.", "no_send": True},
+        ],
+    },
+    {
+        "name": "🔒 PRIVATE",
+        "channels": [
+            {"name": "💬・vip-lounge",     "type": "text", "topic": "VIP lounge — boosters and OGs only.", "vip_only": True},
+            {"name": "🔊 vip-vc",          "type": "voice", "vip_only": True},
+        ],
+    },
+    {
+        "name": "📢 SOCIAL",
+        "channels": [
+            {"name": "🤖・bot-commands",   "type": "text", "topic": "Use bot commands here. Keep general clean."},
         ],
     },
     {
@@ -96,19 +116,32 @@ class Setup(commands.Cog):
                     skipped += 1
                     continue
 
-                overwrites = {
-                    everyone: discord.PermissionOverwrite(
-                        view_channel=True,
-                        send_messages=not ch_data.get("no_send", False),
-                        add_reactions=True,
-                    ),
-                    bot_member: discord.PermissionOverwrite(
-                        view_channel=True,
-                        send_messages=True,
-                        manage_messages=True,
-                        manage_channels=True,
-                    ),
-                }
+                if ch_data.get("vip_only"):
+                    # Hidden from @everyone, visible to OG/Booster roles and admins
+                    vip_role = discord.utils.get(guild.roles, name="OG")
+                    booster_role = guild.premium_subscriber_role
+                    overwrites = {
+                        everyone: discord.PermissionOverwrite(view_channel=False),
+                        bot_member: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True),
+                    }
+                    if vip_role:
+                        overwrites[vip_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True)
+                    if booster_role:
+                        overwrites[booster_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True)
+                else:
+                    overwrites = {
+                        everyone: discord.PermissionOverwrite(
+                            view_channel=True,
+                            send_messages=not ch_data.get("no_send", False),
+                            add_reactions=True,
+                        ),
+                        bot_member: discord.PermissionOverwrite(
+                            view_channel=True,
+                            send_messages=True,
+                            manage_messages=True,
+                            manage_channels=True,
+                        ),
+                    }
 
                 if ch_data["type"] == "text":
                     await guild.create_text_channel(
@@ -118,13 +151,14 @@ class Setup(commands.Cog):
                         overwrites=overwrites,
                     )
                 else:
+                    vc_overwrites = overwrites if ch_data.get("vip_only") else {
+                        everyone: discord.PermissionOverwrite(view_channel=True, connect=True),
+                        bot_member: discord.PermissionOverwrite(view_channel=True, connect=True, move_members=True),
+                    }
                     await guild.create_voice_channel(
                         ch_data["name"],
                         category=cat,
-                        overwrites={
-                            everyone: discord.PermissionOverwrite(view_channel=True, connect=True),
-                            bot_member: discord.PermissionOverwrite(view_channel=True, connect=True, move_members=True),
-                        },
+                        overwrites=vc_overwrites,
                     )
                 created += 1
 

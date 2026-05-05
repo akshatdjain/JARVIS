@@ -137,7 +137,7 @@ class Stream(commands.Cog):
 
 
 
-    @app_commands.command(name="stream", description="Search Hotstar or YouTube — only works in the stream chat channel")
+    @app_commands.command(name="stream", description="Search Hotstar or YouTube")
     @app_commands.choices(platform=[
         app_commands.Choice(name="Hotstar", value="hotstar"),
         app_commands.Choice(name="YouTube", value="yt"),
@@ -149,28 +149,26 @@ class Stream(commands.Cog):
             if interaction.channel_id != config["stream_text_channel_id"]:
                 ch = interaction.guild.get_channel(config["stream_text_channel_id"])
                 return await interaction.response.send_message(
-                    f"This command only works in {ch.mention}.", ephemeral=True
+                    f"Use this command in {ch.mention}.", ephemeral=True
                 )
 
         q = urllib.parse.quote_plus(query)
         if platform.value == "hotstar":
             url = f"https://www.hotstar.com/in/explore?search_query={q}"
-            label = "Watch on Hotstar"
+            label = "Open Hotstar"
             color = 0x1F80E0
-            icon = "📺"
         else:
             url = f"https://www.youtube.com/results?search_query={q}"
-            label = "Search on YouTube"
+            label = "Open YouTube"
             color = 0xFF0000
-            icon = "▶️"
 
-        embed = discord.Embed(
-            title=f"{icon} {platform.name}: {query}",
-            color=color,
-        )
         view = discord.ui.View()
         view.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link))
-        await interaction.response.send_message(embed=embed, view=view)
+        # Respond with just the button — minimal, click to open
+        await interaction.response.send_message(
+            f"**{query}** on {platform.name} — click to open:",
+            view=view
+        )
 
 
 async def setup(bot: commands.Bot) -> None:
