@@ -52,13 +52,6 @@ class General(commands.Cog):
         embed.set_image(url=target.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="invite", description="Get the bot's invite link")
-    async def invite(self, interaction: discord.Interaction):
-        import os
-        client_id = os.getenv("CLIENT_ID", str(self.bot.user.id))
-        url = f"https://discord.com/oauth2/authorize?client_id={client_id}&permissions=8&scope=bot%20applications.commands"
-        embed = discord.Embed(title="➕ Invite JARVIS", description=f"[Click here to add JARVIS to your server]({url})", color=0x5865F2)
-        await interaction.response.send_message(embed=embed)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
@@ -84,16 +77,6 @@ class General(commands.Cog):
         embed.timestamp = discord.utils.utcnow()
         await channel.send(member.mention, embed=embed)
 
-    @app_commands.command(name="setwelcome", description="Set the welcome message channel")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def setwelcome(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        async with self.bot.db.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO guild_config (guild_id, welcome_channel_id) VALUES ($1, $2) "
-                "ON CONFLICT (guild_id) DO UPDATE SET welcome_channel_id = $2",
-                interaction.guild_id, channel.id
-            )
-        await interaction.response.send_message(f"✅ Welcome messages will go to {channel.mention}.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
