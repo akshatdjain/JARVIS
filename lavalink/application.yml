@@ -37,9 +37,9 @@ plugins:
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
     clients:
+      - ANDROID_VR
       - TV
       - WEBEMBEDDED
-      - TVHTML5_SIMPLY
       - WEB
     oauth:
       enabled: true
