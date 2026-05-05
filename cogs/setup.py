@@ -182,6 +182,63 @@ class Setup(commands.Cog):
             content=f"✅ Server setup complete! Created **{created}** channels, skipped **{skipped}** existing."
         )
 
+    # ── /cleanup — delete old uncategorised channels before running /setup ──────
+    @app_commands.command(name="cleanup", description="Delete old channels not in the new layout (admin only)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def cleanup(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+
+        # Names of legacy channels/VCs to delete
+        LEGACY_NAMES = {
+            # text
+            "general", "games", "music", "watch",
+            # voice
+            "lounge", "stream room", "watch",
+        }
+
+        # Build the set of channel names that belong to the new layout
+        NEW_NAMES = set()
+        for cat in CATEGORIES:
+            for ch in cat["channels"]:
+                NEW_NAMES.add(ch["name"].lower())
+        for stat in STAT_CHANNELS:
+            NEW_NAMES.add(stat["label"].split(":")[0].strip().lower())
+
+        deleted = []
+        skipped = []
+
+        for ch in list(guild.channels):
+            name_lower = ch.name.lower().strip()
+            # Only touch channels that are in the legacy list AND not in the new layout
+            if name_lower in LEGACY_NAMES and name_lower not in NEW_NAMES:
+                # Skip if it's already inside one of our new categories
+                if isinstance(ch, (discord.TextChannel, discord.VoiceChannel)):
+                    if ch.category and ch.category.name in [c["name"] for c in CATEGORIES] + [STAT_CATEGORY]:
+                        skipped.append(ch.name)
+                        continue
+                try:
+                    await ch.delete(reason="Cleanup before /setup")
+                    deleted.append(ch.name)
+                except discord.HTTPException:
+                    skipped.append(ch.name)
+
+        # Also delete empty legacy categories (Text Channels, Voice Channels)
+        LEGACY_CATS = {"text channels", "voice channels"}
+        for cat in list(guild.categories):
+            if cat.name.lower() in LEGACY_CATS and len(cat.channels) == 0:
+                try:
+                    await cat.delete(reason="Cleanup legacy category")
+                    deleted.append(f"[category] {cat.name}")
+                except discord.HTTPException:
+                    pass
+
+        msg = f"Deleted **{len(deleted)}** channels: {', '.join(f'`{n}`' for n in deleted) or 'none'}"
+        if skipped:
+            msg += f"\nSkipped: {', '.join(f'`{n}`' for n in skipped)}"
+        msg += "\n\nNow run `/setup` to build the new layout."
+        await interaction.edit_original_response(content=msg)
+
     def _stat_label(self, guild: discord.Guild, stat: dict) -> str:
         if stat["key"] == "members":
             count = sum(1 for m in guild.members if not m.bot)
