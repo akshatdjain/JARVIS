@@ -41,12 +41,11 @@ COGS = [
 # Admin/config cogs — commands go guild-only (instant, no global limit usage)
 GUILD_COGS = [
     "cogs.setup",
-    "cogs.config",
+    "cogs.settings",
     "cogs.admin",
     "cogs.mod",
     "cogs.music_extras",
     "cogs.automod",
-    "cogs.moderation",
     "cogs.ytrefresh",
 ]
 
@@ -148,17 +147,17 @@ class Jarvis(commands.Bot):
     async def _sync_commands(self):
         await self.wait_until_ready()
 
-        # Global sync — user-facing commands only, no admin clutter
-        await self.tree.sync()
-        log.info("Global commands synced")
+        # Wipe global commands — guild-only is the source of truth, avoids duplicates
+        await self.http.bulk_upsert_global_commands(self.application_id, [])
+        log.info("Wiped global commands")
 
-        # Guild sync — /config /admin /mod + other admin commands, instant on every guild
+        # Sync everything (globals + guild-only admin commands) to main guild — instant, no duplicates
         guild_id = os.getenv("GUILD_ID")
         if guild_id:
             guild = discord.Object(id=int(guild_id))
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            log.info("Guild commands synced to %s", guild_id)
+            log.info("All commands synced to guild %s", guild_id)
 
     async def on_guild_join(self, guild: discord.Guild):
         try:

@@ -8,41 +8,88 @@ import wavelink
 
 
 class MusicView(discord.ui.View):
-    def __init__(self, bot):
+    def __init__(self, bot, track_title: str = ""):
         super().__init__(timeout=None)
         self.bot = bot
+        self.track_title = track_title
 
-    @discord.ui.button(label="⏯️", style=discord.ButtonStyle.secondary, custom_id="pause_resume")
+    # Row 0 — playback controls
+    @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary, custom_id="prev_btn", row=0)
+    async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("No previous track in queue.", ephemeral=True)
+
+    @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.primary, custom_id="pause_resume", row=0)
     async def pause_resume(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc: wavelink.Player = interaction.guild.voice_client
         if not vc:
-            return await interaction.response.send_message("❌ Player not active!", ephemeral=True)
+            return await interaction.response.send_message("Not active.", ephemeral=True)
         await vc.pause(not vc.paused)
-        await interaction.response.send_message(f"✅ {'Paused' if vc.paused else 'Resumed'}!", ephemeral=True)
+        button.emoji = "▶️" if vc.paused else "⏸️"
+        await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="⏭️", style=discord.ButtonStyle.secondary, custom_id="skip_btn")
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="skip_btn", row=0)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc: wavelink.Player = interaction.guild.voice_client
         if not vc:
-            return await interaction.response.send_message("❌ Player not active!", ephemeral=True)
+            return await interaction.response.send_message("Not active.", ephemeral=True)
         await vc.skip()
-        await interaction.response.send_message("⏭️ Skipped!", ephemeral=True)
+        await interaction.response.send_message("Skipped.", ephemeral=True)
 
-    @discord.ui.button(label="🔀", style=discord.ButtonStyle.secondary, custom_id="shuffle_btn")
+    # Row 1 — extras
+    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, custom_id="shuffle_btn", row=1)
     async def shuffle(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc: wavelink.Player = interaction.guild.voice_client
         if not vc:
-            return await interaction.response.send_message("❌ Player not active!", ephemeral=True)
+            return await interaction.response.send_message("Not active.", ephemeral=True)
         vc.queue.shuffle()
-        await interaction.response.send_message("🔀 Queue shuffled!", ephemeral=True)
+        await interaction.response.send_message("Queue shuffled.", ephemeral=True)
 
-    @discord.ui.button(label="🛑", style=discord.ButtonStyle.danger, custom_id="stop_btn")
+    @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.secondary, custom_id="loop_btn", row=1)
+    async def loop_toggle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        vc: wavelink.Player = interaction.guild.voice_client
+        if not vc:
+            return await interaction.response.send_message("Not active.", ephemeral=True)
+        modes = ["off", "track", "queue"]
+        current = getattr(vc, "loop_mode", "off")
+        next_mode = modes[(modes.index(current) + 1) % 3]
+        vc.loop_mode = next_mode
+        icons = {"off": "🔁", "track": "🔂", "queue": "🔁"}
+        labels = {"off": "Loop off", "track": "Loop track", "queue": "Loop queue"}
+        button.emoji = icons[next_mode]
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(labels[next_mode], ephemeral=True)
+
+    @discord.ui.button(label="Lyrics", emoji="📝", style=discord.ButtonStyle.secondary, custom_id="lyrics_btn", row=1)
+    async def lyrics_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        vc: wavelink.Player = interaction.guild.voice_client
+        query = (vc.current.title if vc and vc.current else self.track_title)
+        if not query:
+            return await interaction.followup.send("Nothing playing.", ephemeral=True)
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(
+                    f"https://api.lyrics.ovh/v1/{query.replace(' ', '/')}",
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status != 200:
+                        return await interaction.followup.send(f"No lyrics found for **{query}**.", ephemeral=True)
+                    data = await resp.json()
+                    lyrics = data.get("lyrics", "")[:3800]
+            except Exception:
+                return await interaction.followup.send("Lyrics service unavailable.", ephemeral=True)
+        if not lyrics:
+            return await interaction.followup.send("No lyrics found.", ephemeral=True)
+        embed = discord.Embed(title=f"Lyrics — {query}", description=lyrics, color=0x1C1C1E)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(emoji="🛑", style=discord.ButtonStyle.danger, custom_id="stop_btn", row=1)
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
         vc: wavelink.Player = interaction.guild.voice_client
         if not vc:
-            return await interaction.response.send_message("❌ Player not active!", ephemeral=True)
+            return await interaction.response.send_message("Not active.", ephemeral=True)
         await vc.disconnect()
-        await interaction.response.send_message("🛑 Disconnected!", ephemeral=True)
+        await interaction.response.send_message("Stopped.", ephemeral=True)
 
 
 def format_duration(ms: int) -> str:
@@ -82,32 +129,42 @@ class Music(commands.Cog):
         player = payload.player
         track = payload.track
 
-        loop_status = ""
-        if hasattr(player, "loop_mode"):
-            if player.loop_mode == "track":
-                loop_status = " • 🔂 Looping Track"
-            elif player.loop_mode == "queue":
-                loop_status = " • 🔁 Looping Queue"
+        if not hasattr(player, "text_channel") or not player.text_channel:
+            return
 
-        embed = discord.Embed(
-            title="📻 Now Playing",
-            description=f"**[{track.title}]({track.uri})**",
-            color=0x2B2D31,
-        )
+        loop_mode = getattr(player, "loop_mode", "off")
+        loop_icon = {"track": "🔂", "queue": "🔁", "off": ""}.get(loop_mode, "")
+        queue_len = len(player.queue)
+        requester = player.requested_by if hasattr(player, "requested_by") else None
+        duration = format_duration(track.length)
+
+        # Apple Music / YT Music style — large artwork, minimal text, clean layout
+        embed = discord.Embed(color=0x1C1C1E)  # near-black like Apple Music dark
+
+        # Title + artist as description (link to track)
+        artist = track.author or "Unknown Artist"
+        embed.description = f"### [{track.title}]({track.uri})\n{artist}"
+
+        # Large artwork as image (not thumbnail — fills the card)
         if track.artwork:
-            embed.set_thumbnail(url=track.artwork)
-        embed.add_field(name="⏱️ Duration", value=f"`{format_duration(track.length)}`", inline=True)
-        requester = player.requested_by.mention if hasattr(player, "requested_by") else "Unknown"
-        embed.add_field(name="🎧 Requester", value=requester, inline=True)
-        embed.add_field(name="⏭️ Queue", value=f"`{len(player.queue)} tracks`{loop_status}", inline=False)
-        embed.set_footer(
-            text="JARVIS Music",
-            icon_url=self.bot.user.avatar.url if self.bot.user.avatar else None,
-        )
-        embed.timestamp = datetime.datetime.now()
+            embed.set_image(url=track.artwork)
 
-        if hasattr(player, "text_channel") and player.text_channel:
-            await player.text_channel.send(embed=embed, view=MusicView(self.bot))
+        # Compact single-line meta below
+        meta_parts = [f"`{duration}`"]
+        if queue_len:
+            meta_parts.append(f"`{queue_len} in queue`")
+        if loop_icon:
+            meta_parts.append(loop_icon)
+        embed.add_field(name="", value="  ".join(meta_parts), inline=False)
+
+        # Requester as footer
+        if requester:
+            embed.set_footer(
+                text=f"Queued by {requester.display_name}",
+                icon_url=requester.display_avatar.url,
+            )
+
+        await player.text_channel.send(embed=embed, view=MusicView(self.bot, track_title=track.title))
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
