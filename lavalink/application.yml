@@ -1,0 +1,70 @@
+server:
+  port: 2333
+  address: 0.0.0.0
+  undertow:
+    threads:
+      worker: 8
+      io: 4
+
+lavalink:
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.0"
+      snapshot: false
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.4.0"
+      snapshot: false
+  server:
+    password: "youshallnotpass"
+    bufferDurationMs: 800
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: HIGH
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    playerUpdateInterval: 5
+    sources:
+      youtube: false
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      http: true
+      local: false
+
+plugins:
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    clients:
+      - ANDROID_MUSIC
+      - ANDROID
+      - ANDROID_TESTSUITE
+      - TVHTML5_SIMPLY_EMBEDDED_PLAYER
+      - MWEB
+      - IOS
+      - WEB
+    pot:
+      visitorData: "CgtBQ09tN29zdjUtdyjcmenPBjIKCgJJThIEGgAgZGLfAgrcAjE4LllUPWQ2cFRJeUtCemdLeERGbFpXX0dkTVJYYUhPejN0ZGcySEVUS2FPM2J3MXA0S1gwQm9vUGlKLThxaHI0VWotWklYWGYwa3o3N3hTNDdwTFlKdi1SZkx2VmVqWGxEU1lQQWktOVdQQ2doV3ZVMXV6MXpWeEJUZ29BUVRNSFpES1p4djY1d0xLQXNyWDlxR1Nmb09iVUFVak0zbUV0R0VoNVpzemItUkxfcV9aM3d3emtzYjdnYm9tTmJPbGs2V1hKaGpHdFhIY3pYNHRqNjdIYmIyTUV0YnRHT3ZZLVlZcy1TVDB1ZTVxX3RoU1RWQUxjM0diQzJRcUZON1JtamYxVEZqcnA1ZVQ5eEtIVTYtLWczMW12VjhvNnhSMmVjLXdkZGxwUEpEX3A5akY4dlhnLWdhZ1YxbkI2cjhhdEE0T0ZOMjVIVmpWZzdwTzZMWUVHbkxjTEFwUQ=="
+
+  lavasrc:
+    providers:
+      - "ytsearch:\"%ISRC%\""
+      - "ytsearch:%QUERY%"
+      - "scsearch:%QUERY%"
+    sources:
+      spotify: true
+      applemusic: false
+      deezer: false
+    spotify:
+      clientId: "${SPOTIFY_CLIENT_ID}"
+      clientSecret: "${SPOTIFY_CLIENT_SECRET}"
+      countryCode: "US"
+      playlistLoadLimit: 6
+      albumLoadLimit: 6
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO
+    dev.lavalink.youtube: INFO
