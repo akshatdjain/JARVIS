@@ -127,6 +127,8 @@ class Jarvis(commands.Bot):
         intents = discord.Intents.all()
         super().__init__(command_prefix=">", intents=intents)
         self.db: asyncpg.Pool = None
+        self._last_event_seq: int = 0
+        self._last_event_time: float = 0
 
     async def setup_hook(self):
         self.db = await asyncpg.create_pool(dsn=os.getenv("DATABASE_URL"), min_size=2, max_size=10)
@@ -143,21 +145,54 @@ class Jarvis(commands.Bot):
 
         # Run syncs in background so bot comes online immediately
         self.loop.create_task(self._sync_commands())
+        self.loop.create_task(self._gateway_watchdog())
 
     async def _sync_commands(self):
         await self.wait_until_ready()
 
         # Wipe global commands — guild-only is the source of truth, avoids duplicates
-        await self.http.bulk_upsert_global_commands(self.application_id, [])
-        log.info("Wiped global commands")
+        try:
+            await self.http.bulk_upsert_global_commands(self.application_id, [])
+            log.info("Wiped global commands")
+        except Exception as e:
+            log.warning("Could not wipe global commands: %s", e)
 
-        # Sync everything (globals + guild-only admin commands) to main guild — instant, no duplicates
+        # Sync to main guild — instant, no duplicates
         guild_id = os.getenv("GUILD_ID")
         if guild_id:
             guild = discord.Object(id=int(guild_id))
             self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-            log.info("All commands synced to guild %s", guild_id)
+            try:
+                await self.tree.sync(guild=guild)
+                log.info("All commands synced to guild %s", guild_id)
+            except discord.Forbidden:
+                # Bot lost guild command permissions — fall back to global sync
+                log.warning("Guild sync forbidden, falling back to global sync")
+                try:
+                    await self.tree.sync()
+                    log.info("Global commands synced as fallback")
+                except Exception as e2:
+                    log.error("Global sync also failed: %s", e2)
+            except Exception as e:
+                log.error("Command sync failed: %s", e)
+
+    async def on_socket_raw_receive(self, msg):
+        import time
+        self._last_event_time = time.time()
+
+    async def _gateway_watchdog(self):
+        """Reconnect if no gateway events for 10 minutes — prevents stale session."""
+        import time
+        await self.wait_until_ready()
+        self._last_event_time = time.time()
+        while not self.is_closed():
+            await asyncio.sleep(300)  # check every 5 minutes
+            if self._last_event_time and (time.time() - self._last_event_time) > 600:
+                log.warning("No gateway events for 10+ minutes, reconnecting...")
+                try:
+                    await self.close()
+                except Exception:
+                    pass
 
     async def on_guild_join(self, guild: discord.Guild):
         try:
