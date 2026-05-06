@@ -1,0 +1,10 @@
+redenv/
+redbot_data/
+lavalink_setup/
+old_cogs/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.bat
+.env
