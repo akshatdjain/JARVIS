@@ -150,36 +150,27 @@ class Jarvis(commands.Bot):
         await self.wait_until_ready()
 
         guild_id = os.getenv("GUILD_ID")
+        if not guild_id:
+            return
 
-        # Try guild sync first (instant, no rate limit issues)
-        if guild_id:
-            guild = discord.Object(id=int(guild_id))
-            self.tree.copy_global_to(guild=guild)
-            try:
-                await self.tree.sync(guild=guild)
-                log.info("Commands synced to guild %s", guild_id)
-                # Guild sync worked — clear any stale global commands quietly
-                try:
-                    await self.http.bulk_upsert_global_commands(self.application_id, [])
-                except Exception:
-                    pass
-                return  # done — no need for global sync
-            except discord.Forbidden:
-                log.warning("Guild sync forbidden (bot needs re-invite). Trying global sync once...")
-            except Exception as e:
-                log.error("Guild sync failed: %s", e)
-                return
+        guild = discord.Object(id=int(guild_id))
+        self.tree.copy_global_to(guild=guild)
 
-        # Global sync fallback — only runs if guild sync is forbidden
-        # Discord rate-limits global sync to ~2/day, so only attempt once
         try:
-            await self.tree.sync()
-            log.info("Global commands synced (fallback)")
+            await self.tree.sync(guild=guild)
+            log.info("Commands synced to guild %s", guild_id)
+        except discord.Forbidden:
+            log.error("Guild sync forbidden — bot needs re-invite with applications.commands scope: "
+                      "https://discord.com/oauth2/authorize?client_id=%s&permissions=8&scope=bot%%20applications.commands",
+                      self.application_id)
         except discord.HTTPException as e:
             if e.status == 429:
-                log.error("Global sync rate limited — commands will appear after Discord's cooldown (~1hr). Re-invite the bot to fix permanently.")
+                # Already rate-limited — discord.py will auto-retry, just log and wait
+                log.warning("Guild sync rate limited — discord.py will retry automatically. Commands will appear shortly.")
             else:
-                log.error("Global sync failed: %s", e)
+                log.error("Guild sync failed: %s", e)
+        except Exception as e:
+            log.error("Guild sync failed: %s", e)
 
     async def on_socket_response(self, msg):
         # Track last sequence number to detect truly stale sessions
