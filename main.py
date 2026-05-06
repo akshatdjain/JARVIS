@@ -128,7 +128,6 @@ class Jarvis(commands.Bot):
         super().__init__(command_prefix=">", intents=intents)
         self.db: asyncpg.Pool = None
         self._last_event_seq: int = 0
-        self._last_event_time: float = 0
 
     async def setup_hook(self):
         self.db = await asyncpg.create_pool(dsn=os.getenv("DATABASE_URL"), min_size=2, max_size=10)
@@ -176,23 +175,34 @@ class Jarvis(commands.Bot):
             except Exception as e:
                 log.error("Command sync failed: %s", e)
 
-    async def on_socket_raw_receive(self, msg):
-        import time
-        self._last_event_time = time.time()
+    async def on_socket_response(self, msg):
+        # Track last sequence number to detect truly stale sessions
+        if isinstance(msg, dict) and msg.get('s'):
+            self._last_event_seq = msg['s']
 
     async def _gateway_watchdog(self):
-        """Reconnect if no gateway events for 10 minutes — prevents stale session."""
-        import time
+        """Reconnect only if sequence number hasn't advanced in 20+ minutes.
+        Heartbeat-only sessions keep sequence the same but are NOT stale —
+        only reconnect if we're stuck AND not receiving any dispatched events."""
         await self.wait_until_ready()
-        self._last_event_time = time.time()
+        import time
+        last_checked_seq = self._last_event_seq
+        last_advance_time = time.time()
         while not self.is_closed():
-            await asyncio.sleep(300)  # check every 5 minutes
-            if self._last_event_time and (time.time() - self._last_event_time) > 600:
-                log.warning("No gateway events for 10+ minutes, reconnecting...")
-                try:
-                    await self.close()
-                except Exception:
-                    pass
+            await asyncio.sleep(600)  # check every 10 minutes
+            current_seq = self._last_event_seq
+            if current_seq == last_checked_seq:
+                # Sequence hasn't moved at all in 10 minutes
+                if (time.time() - last_advance_time) > 1200:  # 20 minutes total stuck
+                    log.warning("Gateway sequence stuck at %s for 20+ minutes, reconnecting...", current_seq)
+                    try:
+                        await self.close()
+                    except Exception:
+                        pass
+                    return
+            else:
+                last_checked_seq = current_seq
+                last_advance_time = time.time()
 
     async def on_guild_join(self, guild: discord.Guild):
         try:
