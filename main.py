@@ -188,17 +188,40 @@ class Jarvis(commands.Bot):
             log.info("Commands unchanged (hash=%s) — skipping sync", current_hash)
             return
 
+        # Also check last sync time — never sync more than once per 10 minutes
+        # This prevents any edge case where restarts happen in quick succession
+        try:
+            async with self.db.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT value FROM bot_state WHERE key = 'last_sync_time'"
+                )
+                if row:
+                    import time
+                    last_sync = float(row["value"])
+                    elapsed = time.time() - last_sync
+                    if elapsed < 600:
+                        log.info("Skipping sync — last sync was %.0fs ago (min 600s)", elapsed)
+                        return
+        except Exception:
+            pass
+
         log.info("Commands changed (old=%s new=%s) — syncing...", stored_hash, current_hash)
 
         try:
             await self.tree.sync(guild=guild)
             log.info("Commands synced to guild %s", guild_id)
-            # Store new hash only after successful sync
+            # Store new hash and sync time only after successful sync
+            import time
             async with self.db.acquire() as conn:
                 await conn.execute(
                     "INSERT INTO bot_state (key, value) VALUES ($1, $2) "
                     "ON CONFLICT (key) DO UPDATE SET value = $2",
                     SYNC_HASH_KEY, current_hash
+                )
+                await conn.execute(
+                    "INSERT INTO bot_state (key, value) VALUES ('last_sync_time', $1) "
+                    "ON CONFLICT (key) DO UPDATE SET value = $1",
+                    str(time.time())
                 )
         except discord.Forbidden:
             log.error(
