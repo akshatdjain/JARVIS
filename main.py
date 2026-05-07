@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import asyncpg
@@ -17,7 +19,6 @@ logging.getLogger("discord.voice_client").setLevel(logging.DEBUG)
 logging.getLogger("discord.gateway").setLevel(logging.DEBUG)
 log = logging.getLogger("jarvis")
 
-# User-facing cogs — commands go global
 COGS = [
     "cogs.help",
     "cogs.music",
@@ -38,7 +39,6 @@ COGS = [
     "cogs.roles",
 ]
 
-# Admin/config cogs — commands go guild-only (instant, no global limit usage)
 GUILD_COGS = [
     "cogs.setup",
     "cogs.settings",
@@ -119,7 +119,25 @@ CREATE TABLE IF NOT EXISTS automod_config (
     block_links BOOLEAN DEFAULT FALSE,
     banned_words TEXT[] DEFAULT ARRAY[]::TEXT[]
 );
+
+CREATE TABLE IF NOT EXISTS bot_state (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 """
+
+SYNC_HASH_KEY = "command_sync_hash"
+
+
+def _command_hash(tree: discord.app_commands.CommandTree, guild: discord.Object) -> str:
+    """Stable hash of the current command tree for a guild. Used to skip unnecessary syncs."""
+    cmds = tree.get_commands(guild=guild)
+    # Use command names + descriptions as a lightweight stable fingerprint
+    payload = sorted(
+        [{"name": cmd.name, "description": cmd.description} for cmd in cmds],
+        key=lambda c: c["name"]
+    )
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
 
 class Jarvis(commands.Bot):
@@ -127,7 +145,6 @@ class Jarvis(commands.Bot):
         intents = discord.Intents.all()
         super().__init__(command_prefix=">", intents=intents)
         self.db: asyncpg.Pool = None
-        self._last_event_seq: int = 0
 
     async def setup_hook(self):
         self.db = await asyncpg.create_pool(dsn=os.getenv("DATABASE_URL"), min_size=2, max_size=10)
@@ -142,9 +159,7 @@ class Jarvis(commands.Bot):
             except Exception as e:
                 log.error("Failed to load cog %s: %s", cog, e, exc_info=True)
 
-        # Run syncs in background so bot comes online immediately
         self.loop.create_task(self._sync_commands())
-        self.loop.create_task(self._gateway_watchdog())
 
     async def _sync_commands(self):
         await self.wait_until_ready()
@@ -156,56 +171,60 @@ class Jarvis(commands.Bot):
         guild = discord.Object(id=int(guild_id))
         self.tree.copy_global_to(guild=guild)
 
+        # Compute hash of current command tree
+        current_hash = _command_hash(self.tree, guild)
+
+        # Check stored hash — skip sync if commands haven't changed
+        try:
+            async with self.db.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT value FROM bot_state WHERE key = $1", SYNC_HASH_KEY
+                )
+                stored_hash = row["value"] if row else None
+        except Exception:
+            stored_hash = None
+
+        if stored_hash == current_hash:
+            log.info("Commands unchanged (hash=%s) — skipping sync", current_hash)
+            return
+
+        log.info("Commands changed (old=%s new=%s) — syncing...", stored_hash, current_hash)
+
         try:
             await self.tree.sync(guild=guild)
             log.info("Commands synced to guild %s", guild_id)
+            # Store new hash only after successful sync
+            async with self.db.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO bot_state (key, value) VALUES ($1, $2) "
+                    "ON CONFLICT (key) DO UPDATE SET value = $2",
+                    SYNC_HASH_KEY, current_hash
+                )
         except discord.Forbidden:
-            log.error("Guild sync forbidden — bot needs re-invite with applications.commands scope: "
-                      "https://discord.com/oauth2/authorize?client_id=%s&permissions=8&scope=bot%%20applications.commands",
-                      self.application_id)
+            log.error(
+                "Guild sync forbidden — re-invite bot: "
+                "https://discord.com/oauth2/authorize?client_id=%s&permissions=8&scope=bot%%20applications.commands",
+                self.application_id
+            )
         except discord.HTTPException as e:
             if e.status == 429:
-                # Already rate-limited — discord.py will auto-retry, just log and wait
-                log.warning("Guild sync rate limited — discord.py will retry automatically. Commands will appear shortly.")
+                # Rate limited — do NOT retry here. The hash is not saved, so
+                # the next restart will try again. No retry loop, no hammering.
+                log.warning(
+                    "Guild sync rate limited (429). Will retry on next restart. "
+                    "Discord.py retry_after: %s", getattr(e, 'retry_after', 'unknown')
+                )
             else:
-                log.error("Guild sync failed: %s", e)
+                log.error("Guild sync failed (%s): %s", e.status, e.text)
         except Exception as e:
             log.error("Guild sync failed: %s", e)
 
-    async def on_socket_response(self, msg):
-        # Track last sequence number to detect truly stale sessions
-        if isinstance(msg, dict) and msg.get('s'):
-            self._last_event_seq = msg['s']
-
-    async def _gateway_watchdog(self):
-        """Reconnect only if sequence number hasn't advanced in 20+ minutes.
-        Heartbeat-only sessions keep sequence the same but are NOT stale —
-        only reconnect if we're stuck AND not receiving any dispatched events."""
-        await self.wait_until_ready()
-        import time
-        last_checked_seq = self._last_event_seq
-        last_advance_time = time.time()
-        while not self.is_closed():
-            await asyncio.sleep(600)  # check every 10 minutes
-            current_seq = self._last_event_seq
-            if current_seq == last_checked_seq:
-                # Sequence hasn't moved at all in 10 minutes
-                if (time.time() - last_advance_time) > 1200:  # 20 minutes total stuck
-                    log.warning("Gateway sequence stuck at %s for 20+ minutes, reconnecting...", current_seq)
-                    try:
-                        await self.close()
-                    except Exception:
-                        pass
-                    return
-            else:
-                last_checked_seq = current_seq
-                last_advance_time = time.time()
-
     async def on_guild_join(self, guild: discord.Guild):
+        """Sync commands to any new server the bot joins."""
         try:
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            log.info("Auto-synced to new guild: %s (%s)", guild.name, guild.id)
+            log.info("Synced commands to new guild: %s (%s)", guild.name, guild.id)
         except Exception as e:
             log.warning("Failed to sync new guild %s: %s", guild.id, e)
 
